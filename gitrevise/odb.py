@@ -301,12 +301,17 @@ class Repository:
                 return cache[ref]
             ref = ref.hex()
 
+        # Satisfy mypy: otherwise these are Optional[IO[Any]].
+        (stdin, stdout) = (self._catfile.stdin, self._catfile.stdout)
+        assert stdin is not None
+        assert stdout is not None
+
         # Write out an object descriptor.
-        self._catfile.stdin.write(ref.encode() + b"\n")
-        self._catfile.stdin.flush()
+        stdin.write(ref.encode() + b"\n")
+        stdin.flush()
 
         # Read in the response.
-        resp = self._catfile.stdout.readline().decode()
+        resp = stdout.readline().decode()
         if resp.endswith("missing\n"):
             # If we have an abbreviated hash, check for in-memory commits.
             try:
@@ -322,7 +327,7 @@ class Repository:
 
         parts = resp.rsplit(maxsplit=2)
         oid, kind, size = Oid.fromhex(parts[0]), parts[1], int(parts[2])
-        body = self._catfile.stdout.read(size + 1)[:-1]
+        body = stdout.read(size + 1)[:-1]
         assert size == len(body), "bad size?"
 
         # Create a corresponding git object. This will re-use the item in the
@@ -514,7 +519,7 @@ class Commit(GitObj):
     def rebase(self, parent: "Commit") -> "Commit":
         """Create a new commit with the same changes, except with ``parent``
         as it's parent."""
-        from .merge import rebase
+        from .merge import rebase  # pylint: disable=import-outside-toplevel
 
         return rebase(self, parent)
 
@@ -555,9 +560,9 @@ class Commit(GitObj):
 
     def __repr__(self) -> str:
         return (
-            f"<Commit {self.oid} "
-            f"tree={self.tree_oid}, parents={self.parent_oids}, "
-            f"author={self.author}, committer={self.committer}>"
+            f"<Commit {repr(self.oid)} "
+            f"tree={repr(self.tree_oid)}, parents={repr(self.parent_oids)}, "
+            f"author={repr(self.author)}, committer={repr(self.committer)}>"
         )
 
 
@@ -711,11 +716,11 @@ class Index:
         cwd: Optional[Path] = None,
         stdin: Optional[bytes] = None,
         newline: bool = True,
-        env: Mapping[str, str] = os.environ,
+        env: Optional[Mapping[str, str]] = None,
         nocapture: bool = False,
     ) -> bytes:
         """Invoke git with the given index as active"""
-        env = dict(**env)
+        env = dict(**env) if env is not None else dict(**os.environ)
         env["GIT_INDEX_FILE"] = str(self.index_file)
         return self.repo.git(
             *cmd, cwd=cwd, stdin=stdin, newline=newline, env=env, nocapture=nocapture
